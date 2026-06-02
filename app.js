@@ -1,5 +1,7 @@
 import { db, push, ref, onValue, remove, update } from "./firebase.js";
 import { saveOfflineTransaction, getOfflineTransactions } from "./storage.js";
+// At the top of app.js, after imports
+renderDashboard([]); // Render empty state immediately
 
 const app = document.getElementById("app");
 
