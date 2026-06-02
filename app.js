@@ -1,5 +1,4 @@
-import { push } from "./firebase.js";
-import { db, ref, onValue, remove, update } from "./firebase.js";
+import { db, push, ref, onValue, remove, update } from "./firebase.js";
 import { saveOfflineTransaction, getOfflineTransactions } from "./storage.js";
 
 const app = document.getElementById("app");
