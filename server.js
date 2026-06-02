@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import path, { dirname } from 'path';
-import path from 'path';
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, push } from 'firebase/database';
 
