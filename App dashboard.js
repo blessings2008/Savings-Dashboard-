@@ -301,7 +301,7 @@ function renderDashboard(dataArray = []) {
 
           ${p.requiresTransfer ? `
             <div class="transfer-info" style="color: green; font-weight: bold; margin-top: 10px;">
-              ✅ Auto-Approved - Ready for Transfer (MK ${p.saveAmount})
+              ✅ Auto-Approved - Waiting for Macrodroid (MK ${p.saveAmount})
             </div>
           ` : ""}
 
@@ -333,18 +333,19 @@ onValue(pendingTransfersRef, (snapshot) => {
         message: transfer.rawMessage,
         createdAt: transfer.createdAt,
         approvedAt: transfer.approvedAt,
-        status: "pending"
+        status: "pending",
+        requiresProof: true // PROOF REQUIRED BEFORE MARKING SUCCESS
       }));
 
-      console.log(`⏳ PENDING TRANSFERS (Macrodroid Ready):`, transferArray);
-      console.log(`📊 Count: ${transferArray.length} transfers auto-approved and waiting`);
+      console.log(`⏳ PENDING TRANSFERS (Macrodroid Ready - Proof Required):`, transferArray);
+      console.log(`📊 Count: ${transferArray.length} transfers waiting for proof from Macrodroid`);
 
       // Log each transfer for easy Macrodroid detection
       transferArray.forEach((transfer, index) => {
-        console.log(`${index + 1}. ✅ AUTO-APPROVED MK ${transfer.amount} | TID: ${transfer.tid} | From: ${transfer.sender}`);
+        console.log(`${index + 1}. ✅ AUTO-APPROVED MK ${transfer.amount} | TID: ${transfer.tid} | FROM: ${transfer.sender} | PROOF: REQUIRED`);
       });
     } else {
-      console.log("✅ No pending transfers - all caught up!");
+      console.log("✅ No pending transfers - all have been completed with proof!");
     }
   } catch (error) {
     console.error("Failed to load pending transfers:", error);
@@ -402,9 +403,10 @@ onValue(transactionsRef, (snapshot) => {
                 createdAt: Date.now(),
                 approvedAt: Date.now(), // AUTOMATIC APPROVAL TIMESTAMP
                 approvedBy: "auto-system",
-                status: "pending"
+                status: "pending", // PENDING UNTIL PROOF RECEIVED
+                requiresProof: true // MUST HAVE PROOF BEFORE SUCCESS
               });
-              console.log(`✅ AUTO-APPROVED & QUEUED: MK ${parsed.saveAmount} (TID: ${tid}) - Ready for Macrodroid`);
+              console.log(`✅ AUTO-APPROVED & QUEUED: MK ${parsed.saveAmount} (TID: ${tid}) - Awaiting proof from Macrodroid`);
             }
           }, { onlyOnce: true });
         }
@@ -421,7 +423,7 @@ onValue(transactionsRef, (snapshot) => {
 });
 
 // ----------------------------
-// LISTEN FOR COMPLETION MESSAGES FROM MACRODROID
+// LISTEN FOR COMPLETION MESSAGES FROM MACRODROID (PROOF VERIFICATION)
 // ----------------------------
 
 const completionMessagesRef = ref(db, "completion_messages");
@@ -435,19 +437,19 @@ onValue(completionMessagesRef, (snapshot) => {
         if (message && !message.processed) {
           const { tid, successMessage, timestamp } = message;
 
-          console.log(`📨 Completion message received from Macrodroid:`);
+          // VERIFY PROOF MESSAGE EXISTS AND IS VALID
+          if (!successMessage || successMessage.trim().length === 0) {
+            console.error(`❌ REJECTED: No proof message for TID ${tid}`);
+            return;
+          }
+
+          console.log(`📨 PROOF RECEIVED from Macrodroid:`);
           console.log(`   TID: ${tid}`);
-          console.log(`   Message: ${successMessage}`);
+          console.log(`   Proof: "${successMessage}"`);
           console.log(`   Time: ${new Date(timestamp).toLocaleString()}`);
 
-          // Move transfer to completed with proof message
-          completeTransferWithProof(tid, successMessage, timestamp);
-
-          // Mark message as processed
-          update(ref(db, `completion_messages/${key}`), {
-            processed: true,
-            processedAt: Date.now()
-          });
+          // ONLY MARK AS SUCCESS IF PROOF EXISTS
+          completeTransferWithProof(tid, successMessage, timestamp, key);
         }
       });
     }
@@ -457,40 +459,84 @@ onValue(completionMessagesRef, (snapshot) => {
 });
 
 // ----------------------------
-// COMPLETE TRANSFER WITH PROOF MESSAGE
+// COMPLETE TRANSFER ONLY WITH VALID PROOF MESSAGE
 // ----------------------------
 
-async function completeTransferWithProof(tid, successMessage, macrodroidTimestamp) {
+async function completeTransferWithProof(tid, successMessage, macrodroidTimestamp, messageKey) {
   try {
-    const pendingRef = ref(db, `pending_transfers/${tid}`);
-    const snapshot = await new Promise((resolve) => {
-      onValue(pendingRef, resolve, { onlyOnce: true });
+    // VALIDATION: Check that proof message is not empty
+    if (!successMessage || successMessage.trim().length === 0) {
+      console.error(`❌ Cannot complete transfer ${tid}: No valid proof message`);
+      return { success: false, message: "No valid proof message provided" };
+    }
+
+    // Find the pending transfer with this TID
+    const pendingSnapshot = await new Promise((resolve) => {
+      onValue(pendingTransfersRef, resolve, { onlyOnce: true });
     });
 
-    if (snapshot.exists()) {
-      const transferData = snapshot.val();
+    const pendingData = pendingSnapshot.val();
+    let transferKey = null;
+    let transferData = null;
 
-      // Move to completed with Macrodroid proof message
-      await push(ref(db, "completed_transfers"), {
-        ...transferData,
-        completedAt: Date.now(),
-        macrodroidCompletedAt: macrodroidTimestamp,
-        completedBy: "macrodroid",
-        status: "completed",
-        proofMessage: successMessage, // PROOF OF COMPLETION
-        proofMessageTimestamp: macrodroidTimestamp
+    // Find matching transfer by TID
+    if (pendingData) {
+      Object.entries(pendingData).forEach(([key, transfer]) => {
+        if (transfer.tid === tid) {
+          transferKey = key;
+          transferData = transfer;
+        }
       });
-
-      // Remove from pending
-      await remove(pendingRef);
-
-      console.log(`✅ Transfer completed with proof: ${tid}`);
-      console.log(`   Proof: "${successMessage}"`);
-      return { success: true, message: `Transfer ${tid} completed and archived with proof` };
     }
-    return { success: false, message: "Transfer not found in pending" };
+
+    if (!transferKey || !transferData) {
+      console.error(`❌ Transfer not found in pending_transfers for TID: ${tid}`);
+      // Mark message as failed
+      update(ref(db, `completion_messages/${messageKey}`), {
+        processed: true,
+        processedAt: Date.now(),
+        result: "failed",
+        reason: "Transfer not found in pending"
+      });
+      return { success: false, message: "Transfer not found in pending" };
+    }
+
+    // SUCCESS: Transfer found, proof message exists - Archive with proof
+    console.log(`✅ ARCHIVING TRANSFER WITH PROOF: ${tid}`);
+    
+    await push(ref(db, "completed_transfers"), {
+      ...transferData,
+      completedAt: Date.now(),
+      macrodroidCompletedAt: macrodroidTimestamp,
+      completedBy: "macrodroid",
+      status: "completed",
+      proofMessage: successMessage, // PROOF OF COMPLETION FROM MACRODROID
+      proofMessageTimestamp: macrodroidTimestamp,
+      verified: true
+    });
+
+    // Remove from pending transfers
+    await remove(ref(db, `pending_transfers/${transferKey}`));
+
+    // Mark completion message as processed
+    update(ref(db, `completion_messages/${messageKey}`), {
+      processed: true,
+      processedAt: Date.now(),
+      result: "success",
+      transferCompleted: true
+    });
+
+    console.log(`✅ SUCCESS: Transfer ${tid} marked as completed with proof`);
+    console.log(`   Proof stored: "${successMessage}"`);
+    
+    return { 
+      success: true, 
+      message: `Transfer ${tid} completed and archived with Macrodroid proof`,
+      proof: successMessage
+    };
+
   } catch (error) {
-    console.error("Complete transfer with proof failed:", error);
+    console.error("Error completing transfer with proof:", error);
     return { success: false, error: error.message };
   }
 }
@@ -515,7 +561,8 @@ export async function getPendingTransfersForMacrodroid() {
           createdAt: transfer.createdAt,
           approvedAt: transfer.approvedAt,
           approvedBy: transfer.approvedBy,
-          status: "pending"
+          status: "pending",
+          requiresProof: true
         }));
         resolve(transferArray);
       } else {
@@ -525,56 +572,84 @@ export async function getPendingTransfersForMacrodroid() {
   });
 }
 
-// MACRODROID SENDS SUCCESS MESSAGE HERE
+// MACRODROID SENDS SUCCESS MESSAGE WITH PROOF HERE
 export async function sendTransferCompletionMessage(tid, successMessage) {
   try {
+    // VALIDATION: Ensure proof message exists and has content
+    if (!successMessage || successMessage.trim().length === 0) {
+      console.error(`❌ Cannot send completion: No proof message provided for TID ${tid}`);
+      return { success: false, error: "Proof message is required and cannot be empty" };
+    }
+
     // Macrodroid sends the success/proof message
     // Example: "Transfer successful. Confirmation: TXN#123456789 sent to Account ending in 5678"
     
     await push(ref(db, "completion_messages"), {
       tid: tid,
-      successMessage: successMessage, // PROOF MESSAGE FROM MACRODROID
+      successMessage: successMessage, // MANDATORY PROOF MESSAGE FROM MACRODROID
       timestamp: Date.now(),
-      processed: false
+      processed: false,
+      requiresProof: true
     });
 
-    console.log(`📨 Completion message stored for processing: ${tid}`);
-    return { success: true, message: "Completion message received and will be processed" };
+    console.log(`📨 Completion message with proof queued for processing: ${tid}`);
+    console.log(`   Proof: "${successMessage}"`);
+    return { success: true, message: "Completion message with proof received and will be processed" };
   } catch (error) {
     console.error("Failed to send completion message:", error);
     return { success: false, error: error.message };
   }
 }
 
+// ALTERNATIVE: Direct completion with proof
 export async function completeTransferFromMacrodroid(tid, successMessage) {
   try {
-    // Direct completion (alternative method)
-    const pendingRef = ref(db, `pending_transfers/${tid}`);
-    const snapshot = await new Promise((resolve) => {
-      onValue(pendingRef, resolve, { onlyOnce: true });
+    // VALIDATION: Proof message is mandatory
+    if (!successMessage || successMessage.trim().length === 0) {
+      console.error(`❌ Cannot complete transfer without proof message for TID ${tid}`);
+      return { success: false, error: "Proof message is required" };
+    }
+
+    // Find the pending transfer
+    const pendingSnapshot = await new Promise((resolve) => {
+      onValue(pendingTransfersRef, resolve, { onlyOnce: true });
     });
 
-    if (snapshot.exists()) {
-      const transferData = snapshot.val();
+    const pendingData = pendingSnapshot.val();
+    let transferKey = null;
+    let transferData = null;
 
-      // Move to completed with metadata and proof
-      await push(ref(db, "completed_transfers"), {
-        ...transferData,
-        completedAt: Date.now(),
-        completedBy: "macrodroid",
-        status: "completed",
-        proofMessage: successMessage, // PROOF MESSAGE
-        proofMessageTimestamp: Date.now()
+    if (pendingData) {
+      Object.entries(pendingData).forEach(([key, transfer]) => {
+        if (transfer.tid === tid) {
+          transferKey = key;
+          transferData = transfer;
+        }
       });
-
-      // Remove from pending
-      await remove(pendingRef);
-
-      console.log(`✅ Macrodroid completed auto-approved transfer: ${tid}`);
-      console.log(`   Proof Message: "${successMessage}"`);
-      return { success: true, message: `Auto-approved transfer ${tid} completed with proof` };
     }
-    return { success: false, message: "Transfer not found" };
+
+    if (!transferKey || !transferData) {
+      console.error(`❌ Transfer not found in pending for TID: ${tid}`);
+      return { success: false, message: "Transfer not found in pending" };
+    }
+
+    // Archive with proof
+    await push(ref(db, "completed_transfers"), {
+      ...transferData,
+      completedAt: Date.now(),
+      completedBy: "macrodroid",
+      status: "completed",
+      proofMessage: successMessage, // MANDATORY PROOF
+      proofMessageTimestamp: Date.now(),
+      verified: true
+    });
+
+    // Remove from pending
+    await remove(ref(db, `pending_transfers/${transferKey}`));
+
+    console.log(`✅ Direct completion success: ${tid}`);
+    console.log(`   Proof: "${successMessage}"`);
+    return { success: true, message: `Transfer ${tid} completed with proof` };
   } catch (error) {
     console.error("Macrodroid completion failed:", error);
     return { success: false, error: error.message };
