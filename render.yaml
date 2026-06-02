@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: savings-dashboard
+    env: node
+    buildCommand: npm install
+    startCommand: node server.js
+    memoryMB: 512
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: FIREBASE_API_KEY
+        scope: runtime
+      - key: FIREBASE_AUTH_DOMAIN
+        scope: runtime
+      - key: FIREBASE_PROJECT_ID
+        scope: runtime
+      - key: FIREBASE_STORAGE_BUCKET
+        scope: runtime
+      - key: FIREBASE_MESSAGING_SENDER_ID
+        scope: runtime
+      - key: FIREBASE_APP_ID
+        scope: runtime
+      - key: PORT
+        value: 3000
+    routes:
+      - path: /
+        matchType: prefix
+      - path: /api
+        matchType: prefix
+    autoDeploy: true
+    repo: https://github.com/blessings2008/Savings-Dashboard-
+    branch: main
