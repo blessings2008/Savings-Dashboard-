@@ -1,5 +1,5 @@
 import { push } from "./firebase.js";
-import { db, ref, onValue, remove } from "./firebase.js";
+import { db, ref, onValue, remove, update } from "./firebase.js";
 import { saveOfflineTransaction, getOfflineTransactions } from "./storage.js";
 
 const app = document.getElementById("app");
@@ -421,6 +421,81 @@ onValue(transactionsRef, (snapshot) => {
 });
 
 // ----------------------------
+// LISTEN FOR COMPLETION MESSAGES FROM MACRODROID
+// ----------------------------
+
+const completionMessagesRef = ref(db, "completion_messages");
+
+onValue(completionMessagesRef, (snapshot) => {
+  try {
+    const messages = snapshot.val();
+
+    if (messages) {
+      Object.entries(messages).forEach(([key, message]) => {
+        if (message && !message.processed) {
+          const { tid, successMessage, timestamp } = message;
+
+          console.log(`📨 Completion message received from Macrodroid:`);
+          console.log(`   TID: ${tid}`);
+          console.log(`   Message: ${successMessage}`);
+          console.log(`   Time: ${new Date(timestamp).toLocaleString()}`);
+
+          // Move transfer to completed with proof message
+          completeTransferWithProof(tid, successMessage, timestamp);
+
+          // Mark message as processed
+          update(ref(db, `completion_messages/${key}`), {
+            processed: true,
+            processedAt: Date.now()
+          });
+        }
+      });
+    }
+  } catch (error) {
+    console.error("Failed to process completion messages:", error);
+  }
+});
+
+// ----------------------------
+// COMPLETE TRANSFER WITH PROOF MESSAGE
+// ----------------------------
+
+async function completeTransferWithProof(tid, successMessage, macrodroidTimestamp) {
+  try {
+    const pendingRef = ref(db, `pending_transfers/${tid}`);
+    const snapshot = await new Promise((resolve) => {
+      onValue(pendingRef, resolve, { onlyOnce: true });
+    });
+
+    if (snapshot.exists()) {
+      const transferData = snapshot.val();
+
+      // Move to completed with Macrodroid proof message
+      await push(ref(db, "completed_transfers"), {
+        ...transferData,
+        completedAt: Date.now(),
+        macrodroidCompletedAt: macrodroidTimestamp,
+        completedBy: "macrodroid",
+        status: "completed",
+        proofMessage: successMessage, // PROOF OF COMPLETION
+        proofMessageTimestamp: macrodroidTimestamp
+      });
+
+      // Remove from pending
+      await remove(pendingRef);
+
+      console.log(`✅ Transfer completed with proof: ${tid}`);
+      console.log(`   Proof: "${successMessage}"`);
+      return { success: true, message: `Transfer ${tid} completed and archived with proof` };
+    }
+    return { success: false, message: "Transfer not found in pending" };
+  } catch (error) {
+    console.error("Complete transfer with proof failed:", error);
+    return { success: false, error: error.message };
+  }
+}
+
+// ----------------------------
 // EXPORT FOR MACRODROID API
 // ----------------------------
 
@@ -450,8 +525,30 @@ export async function getPendingTransfersForMacrodroid() {
   });
 }
 
-export async function completeTransferFromMacrodroid(tid) {
+// MACRODROID SENDS SUCCESS MESSAGE HERE
+export async function sendTransferCompletionMessage(tid, successMessage) {
   try {
+    // Macrodroid sends the success/proof message
+    // Example: "Transfer successful. Confirmation: TXN#123456789 sent to Account ending in 5678"
+    
+    await push(ref(db, "completion_messages"), {
+      tid: tid,
+      successMessage: successMessage, // PROOF MESSAGE FROM MACRODROID
+      timestamp: Date.now(),
+      processed: false
+    });
+
+    console.log(`📨 Completion message stored for processing: ${tid}`);
+    return { success: true, message: "Completion message received and will be processed" };
+  } catch (error) {
+    console.error("Failed to send completion message:", error);
+    return { success: false, error: error.message };
+  }
+}
+
+export async function completeTransferFromMacrodroid(tid, successMessage) {
+  try {
+    // Direct completion (alternative method)
     const pendingRef = ref(db, `pending_transfers/${tid}`);
     const snapshot = await new Promise((resolve) => {
       onValue(pendingRef, resolve, { onlyOnce: true });
@@ -460,19 +557,22 @@ export async function completeTransferFromMacrodroid(tid) {
     if (snapshot.exists()) {
       const transferData = snapshot.val();
 
-      // Move to completed with metadata
+      // Move to completed with metadata and proof
       await push(ref(db, "completed_transfers"), {
         ...transferData,
         completedAt: Date.now(),
         completedBy: "macrodroid",
-        status: "completed"
+        status: "completed",
+        proofMessage: successMessage, // PROOF MESSAGE
+        proofMessageTimestamp: Date.now()
       });
 
       // Remove from pending
       await remove(pendingRef);
 
       console.log(`✅ Macrodroid completed auto-approved transfer: ${tid}`);
-      return { success: true, message: `Auto-approved transfer ${tid} completed by Macrodroid` };
+      console.log(`   Proof Message: "${successMessage}"`);
+      return { success: true, message: `Auto-approved transfer ${tid} completed with proof` };
     }
     return { success: false, message: "Transfer not found" };
   } catch (error) {
