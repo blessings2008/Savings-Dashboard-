@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import path, { dirname } from 'path';
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, push } from 'firebase/database';
 
@@ -18,7 +18,7 @@ app.use(express.json());
 app.use(express.static(__dirname));
 
 app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "index.html"));
+  res.sendFile(join(__dirname, "index.html"));
 });
 
 // Firebase Configuration
@@ -166,15 +166,14 @@ app.get('/api/completed-transfers', async (req, res) => {
  * Serve the main dashboard
  */
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+  res.sendFile(join(__dirname, 'index.html'));
 });
 
 /**
  * Catch-all for SPA routing
  */
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
-});
+  res.sendFile(join(__dirname, 'index.html'));
 });
 
 // ----------------------------
