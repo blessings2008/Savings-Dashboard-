@@ -1,5 +1,5 @@
 import { push } from "./firebase.js";
-import { db, ref, onValue, update } from "./firebase.js";
+import { db, ref, onValue, remove } from "./firebase.js";
 import { saveOfflineTransaction, getOfflineTransactions } from "./storage.js";
 
 const app = document.getElementById("app");
@@ -163,17 +163,6 @@ function analyze(transactions) {
 }
 
 // ----------------------------
-// TRANSFER FILTER (NEW - ONLY KEEP PENDING TRANSFERS)
-// ----------------------------
-
-function filterPendingTransfers(transactions) {
-  return transactions.filter(transaction => {
-    const parsed = parseTransaction(transaction.message);
-    return parsed && parsed.requiresTransfer && !parsed.processed;
-  });
-}
-
-// ----------------------------
 // PREDICTION ENGINE
 // ----------------------------
 
@@ -310,7 +299,7 @@ function renderDashboard(dataArray = []) {
           </div>
 
           ${p.requiresTransfer ? `
-            <button class="transfer-btn" data-tid="${p.tid}">
+            <button class="transfer-btn" data-tid="${p.tid}" data-amount="${p.saveAmount}">
               Transfer MK ${p.saveAmount.toLocaleString()}
             </button>
           ` : ""}
@@ -326,28 +315,35 @@ function renderDashboard(dataArray = []) {
 }
 
 // ----------------------------
-// TRANSFER HANDLER (NEW)
+// TRANSFER HANDLER (OPTIMIZED FOR MACRODROID)
 // ----------------------------
 
 async function handleTransfer(tid, saveAmount) {
   try {
-    // Update transaction as processed in database
-    const transactionsRef = ref(db, "transactions");
-    const updates = {};
-    updates[`${tid}/processed`] = true;
-
-    await update(transactionsRef, updates);
-
-    // Log transfer in separate transfers table
-    const transfersRef = ref(db, "transfers_completed");
-    await push(transfersRef, {
-      tid,
-      amount: saveAmount,
-      timestamp: Date.now(),
-      status: "completed"
+    // Move from pending_transfers to completed_transfers
+    const pendingRef = ref(db, `pending_transfers/${tid}`);
+    
+    // Get pending transfer data
+    const snapshot = await new Promise((resolve) => {
+      onValue(pendingRef, resolve, { onlyOnce: true });
     });
 
-    alert(`Transfer of MK ${saveAmount.toLocaleString()} completed!`);
+    if (snapshot.exists()) {
+      const transferData = snapshot.val();
+
+      // Add to completed_transfers
+      await push(ref(db, "completed_transfers"), {
+        ...transferData,
+        completedAt: Date.now(),
+        status: "completed"
+      });
+
+      // Remove from pending_transfers
+      await remove(pendingRef);
+
+      console.log(`✅ Transfer completed: MK ${saveAmount} (TID: ${tid})`);
+      alert(`✅ Transfer of MK ${saveAmount.toLocaleString()} completed!`);
+    }
   } catch (error) {
     console.error("Transfer failed:", error);
     alert("Transfer failed. Please try again.");
@@ -359,14 +355,52 @@ function attachTransferListeners() {
   transferButtons.forEach(btn => {
     btn.addEventListener("click", () => {
       const tid = btn.getAttribute("data-tid");
-      const amount = btn.textContent.match(/\d+/g).join("");
+      const amount = btn.getAttribute("data-amount");
       handleTransfer(tid, amount);
     });
   });
 }
 
 // ----------------------------
-// FIREBASE INTEGRATION (FIXED + OPTIMIZED)
+// FIREBASE: PENDING TRANSFERS (For Macrodroid)
+// ----------------------------
+
+const pendingTransfersRef = ref(db, "pending_transfers");
+
+onValue(pendingTransfersRef, (snapshot) => {
+  try {
+    const pendingTransfers = snapshot.val();
+
+    if (pendingTransfers) {
+      const transferArray = Object.entries(pendingTransfers).map(([key, transfer]) => ({
+        id: key,
+        tid: transfer.tid,
+        amount: transfer.saveAmount,
+        percentage: transfer.savingsPercent,
+        sender: transfer.sender,
+        originalAmount: transfer.amount,
+        message: transfer.rawMessage,
+        createdAt: transfer.createdAt,
+        status: "pending"
+      }));
+
+      console.log(`⏳ PENDING TRANSFERS (Macrodroid Ready):`, transferArray);
+      console.log(`📊 Count: ${transferArray.length} transfers waiting`);
+
+      // Log each transfer for easy Macrodroid detection
+      transferArray.forEach((transfer, index) => {
+        console.log(`${index + 1}. MK ${transfer.amount} | TID: ${transfer.tid} | From: ${transfer.sender}`);
+      });
+    } else {
+      console.log("✅ No pending transfers - all caught up!");
+    }
+  } catch (error) {
+    console.error("Failed to load pending transfers:", error);
+  }
+});
+
+// ----------------------------
+// FIREBASE: ALL TRANSACTIONS (For Dashboard)
 // ----------------------------
 
 const transactionsRef = ref(db, "transactions");
@@ -387,22 +421,43 @@ onValue(transactionsRef, (snapshot) => {
       existing.map(x => x.tid || x.message)
     );
 
+    // Process each transaction
     transactions.forEach(t => {
       const key = t.tid || t.message;
 
       if (!existingIds.has(key)) {
         saveOfflineTransaction(t);
+
+        // Parse transaction
+        const parsed = parseTransaction(t.message);
+        
+        // Auto-create pending transfer if approved
+        if (parsed && parsed.requiresTransfer) {
+          const tid = parsed.tid;
+          
+          // Check if already in pending_transfers
+          const checkRef = ref(db, `pending_transfers/${tid}`);
+          onValue(checkRef, (checkSnapshot) => {
+            if (!checkSnapshot.exists()) {
+              // Add to pending_transfers
+              push(ref(db, "pending_transfers"), {
+                tid: parsed.tid,
+                saveAmount: parsed.saveAmount,
+                savingsPercent: parsed.savingsPercent,
+                sender: parsed.sender,
+                amount: parsed.amount,
+                rawMessage: parsed.rawMessage,
+                createdAt: Date.now(),
+                status: "pending"
+              });
+              console.log(`✨ New transfer added: MK ${parsed.saveAmount} (TID: ${tid})`);
+            }
+          }, { onlyOnce: true });
+        }
       }
     });
 
-    // FILTER: ONLY KEEP TRANSACTIONS THAT REQUIRE TRANSFERS
-    const pendingTransfers = filterPendingTransfers(transactions);
-
-    // Keep all transactions in DB for analytics, but flag only pending transfers
     console.log(`📊 Total Transactions: ${transactions.length}`);
-    console.log(`⏳ Pending Transfers: ${pendingTransfers.length}`);
-
-    // Render with all transactions (for analytics) but highlight pending transfers
     renderDashboard(transactions);
 
   } catch (error) {
@@ -412,35 +467,60 @@ onValue(transactionsRef, (snapshot) => {
 });
 
 // ----------------------------
-// CLEANUP: AUTO-ARCHIVE PROCESSED TRANSFERS (OPTIONAL)
+// EXPORT FOR MACRODROID API
 // ----------------------------
 
-async function cleanupProcessedTransfers() {
-  try {
-    const snapshot = await onValue(transactionsRef, (snap) => {
-      const allTransactions = snap.val();
-
-      if (allTransactions) {
-        Object.entries(allTransactions).forEach(([key, transaction]) => {
-          // Remove processed transactions after 7 days
-          if (transaction.processed) {
-            const ageInDays = (Date.now() - transaction.timestamp) / (1000 * 60 * 60 * 24);
-            if (ageInDays > 7) {
-              // Archive instead of delete
-              const archiveRef = ref(db, `archives/${key}`);
-              push(archiveRef, transaction);
-
-              // Then remove from active transactions
-              update(transactionsRef, { [key]: null });
-            }
-          }
-        });
+export async function getPendingTransfersForMacrodroid() {
+  return new Promise((resolve, reject) => {
+    onValue(pendingTransfersRef, (snapshot) => {
+      const pendingTransfers = snapshot.val();
+      if (pendingTransfers) {
+        const transferArray = Object.entries(pendingTransfers).map(([key, transfer]) => ({
+          id: key,
+          tid: transfer.tid,
+          amount: transfer.saveAmount,
+          percentage: transfer.savingsPercent,
+          sender: transfer.sender,
+          originalAmount: transfer.amount,
+          message: transfer.rawMessage,
+          createdAt: transfer.createdAt,
+          status: "pending"
+        }));
+        resolve(transferArray);
+      } else {
+        resolve([]);
       }
-    });
-  } catch (error) {
-    console.error("Cleanup failed:", error);
-  }
+    }, reject);
+  });
 }
 
-// Run cleanup every hour
-setInterval(cleanupProcessedTransfers, 60 * 60 * 1000);
+export async function completeTransferFromMacrodroid(tid) {
+  try {
+    const pendingRef = ref(db, `pending_transfers/${tid}`);
+    const snapshot = await new Promise((resolve) => {
+      onValue(pendingRef, resolve, { onlyOnce: true });
+    });
+
+    if (snapshot.exists()) {
+      const transferData = snapshot.val();
+
+      // Move to completed
+      await push(ref(db, "completed_transfers"), {
+        ...transferData,
+        completedAt: Date.now(),
+        completedBy: "macrodroid",
+        status: "completed"
+      });
+
+      // Remove from pending
+      await remove(pendingRef);
+
+      console.log(`✅ Macrodroid completed transfer: ${tid}`);
+      return { success: true, message: `Transfer ${tid} completed` };
+    }
+    return { success: false, message: "Transfer not found" };
+  } catch (error) {
+    console.error("Macrodroid completion failed:", error);
+    return { success: false, error: error.message };
+  }
+}
