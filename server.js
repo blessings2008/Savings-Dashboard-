@@ -14,7 +14,8 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static(join(__dirname, 'public')));
+// Serve static files from current directory (where server.js is)
+app.use(express.static(__dirname));
 
 // Firebase Configuration
 const firebaseConfig = {
@@ -160,15 +161,16 @@ app.get('/api/completed-transfers', async (req, res) => {
 /**
  * Serve the main dashboard
  */
-app.get('/', (req, res) => {
-  res.sendFile(join(__dirname, 'public', 'index.html'));
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 /**
  * Catch-all for SPA routing
  */
 app.get('*', (req, res) => {
-  res.sendFile(join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
 });
 
 // ----------------------------
