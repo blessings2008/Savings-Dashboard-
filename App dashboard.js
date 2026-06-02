@@ -66,7 +66,7 @@ function parseTransaction(message) {
   const tid = tidMatch ? tidMatch[1] : `NO_TID_${amount}_${Date.now()}`;
 
   // ----------------------------
-  // SAVINGS ENGINE (RESTORED + FIXED)
+  // SAVINGS ENGINE (AUTO-APPROVED)
   // ----------------------------
 
   let savingsPercent = 0;
@@ -78,9 +78,10 @@ function parseTransaction(message) {
     savingsPercent = amount > 20000 ? 25 : amount > 5000 ? 35 : 40;
     saveAmount = Math.floor(amount * (savingsPercent / 100));
 
+    // AUTO-APPROVE ALL INCOME SAVINGS >= 100 MK
     if (saveAmount >= 100) {
       savingsStatus = "approved";
-      requiresTransfer = true; // TRANSFERS NEEDED FOR APPROVED SAVINGS
+      requiresTransfer = true; // AUTO-APPROVED AND READY FOR TRANSFER
     } else {
       savingsStatus = "pending";
       requiresTransfer = false;
@@ -204,7 +205,7 @@ function renderDashboard(dataArray = []) {
 
       <div class="hero-top">
         <h1>Money Saver Pro</h1>
-        <p>Level 4 Full Financial Intelligence System</p>
+        <p>Level 4 Full Financial Intelligence System - Auto-Approval Enabled</p>
       </div>
 
       <div class="balance-card">
@@ -225,12 +226,12 @@ function renderDashboard(dataArray = []) {
         </div>
 
         <div class="stat-card savings">
-          <span>Approved Savings</span>
+          <span>Auto-Approved Savings</span>
           <strong>MK ${data.approvedSavings.toLocaleString()}</strong>
         </div>
 
         <div class="stat-card pending">
-          <span>Pending Savings</span>
+          <span>Below Threshold</span>
           <strong>MK ${data.pendingSavings.toLocaleString()}</strong>
         </div>
 
@@ -299,9 +300,9 @@ function renderDashboard(dataArray = []) {
           </div>
 
           ${p.requiresTransfer ? `
-            <button class="transfer-btn" data-tid="${p.tid}" data-amount="${p.saveAmount}">
-              Transfer MK ${p.saveAmount.toLocaleString()}
-            </button>
+            <div class="transfer-info" style="color: green; font-weight: bold; margin-top: 10px;">
+              ✅ Auto-Approved - Ready for Transfer (MK ${p.saveAmount})
+            </div>
           ` : ""}
 
         </div>
@@ -309,56 +310,6 @@ function renderDashboard(dataArray = []) {
 
     </div>
   `;
-
-  // ATTACH TRANSFER EVENT LISTENERS
-  attachTransferListeners();
-}
-
-// ----------------------------
-// TRANSFER HANDLER (OPTIMIZED FOR MACRODROID)
-// ----------------------------
-
-async function handleTransfer(tid, saveAmount) {
-  try {
-    // Move from pending_transfers to completed_transfers
-    const pendingRef = ref(db, `pending_transfers/${tid}`);
-    
-    // Get pending transfer data
-    const snapshot = await new Promise((resolve) => {
-      onValue(pendingRef, resolve, { onlyOnce: true });
-    });
-
-    if (snapshot.exists()) {
-      const transferData = snapshot.val();
-
-      // Add to completed_transfers
-      await push(ref(db, "completed_transfers"), {
-        ...transferData,
-        completedAt: Date.now(),
-        status: "completed"
-      });
-
-      // Remove from pending_transfers
-      await remove(pendingRef);
-
-      console.log(`✅ Transfer completed: MK ${saveAmount} (TID: ${tid})`);
-      alert(`✅ Transfer of MK ${saveAmount.toLocaleString()} completed!`);
-    }
-  } catch (error) {
-    console.error("Transfer failed:", error);
-    alert("Transfer failed. Please try again.");
-  }
-}
-
-function attachTransferListeners() {
-  const transferButtons = document.querySelectorAll(".transfer-btn");
-  transferButtons.forEach(btn => {
-    btn.addEventListener("click", () => {
-      const tid = btn.getAttribute("data-tid");
-      const amount = btn.getAttribute("data-amount");
-      handleTransfer(tid, amount);
-    });
-  });
 }
 
 // ----------------------------
@@ -381,15 +332,16 @@ onValue(pendingTransfersRef, (snapshot) => {
         originalAmount: transfer.amount,
         message: transfer.rawMessage,
         createdAt: transfer.createdAt,
+        approvedAt: transfer.approvedAt,
         status: "pending"
       }));
 
       console.log(`⏳ PENDING TRANSFERS (Macrodroid Ready):`, transferArray);
-      console.log(`📊 Count: ${transferArray.length} transfers waiting`);
+      console.log(`📊 Count: ${transferArray.length} transfers auto-approved and waiting`);
 
       // Log each transfer for easy Macrodroid detection
       transferArray.forEach((transfer, index) => {
-        console.log(`${index + 1}. MK ${transfer.amount} | TID: ${transfer.tid} | From: ${transfer.sender}`);
+        console.log(`${index + 1}. ✅ AUTO-APPROVED MK ${transfer.amount} | TID: ${transfer.tid} | From: ${transfer.sender}`);
       });
     } else {
       console.log("✅ No pending transfers - all caught up!");
@@ -431,7 +383,7 @@ onValue(transactionsRef, (snapshot) => {
         // Parse transaction
         const parsed = parseTransaction(t.message);
         
-        // Auto-create pending transfer if approved
+        // AUTO-APPROVE: Create pending transfer immediately if savings >= 100
         if (parsed && parsed.requiresTransfer) {
           const tid = parsed.tid;
           
@@ -439,7 +391,7 @@ onValue(transactionsRef, (snapshot) => {
           const checkRef = ref(db, `pending_transfers/${tid}`);
           onValue(checkRef, (checkSnapshot) => {
             if (!checkSnapshot.exists()) {
-              // Add to pending_transfers
+              // AUTO-APPROVE: Add to pending_transfers with approval timestamp
               push(ref(db, "pending_transfers"), {
                 tid: parsed.tid,
                 saveAmount: parsed.saveAmount,
@@ -448,9 +400,11 @@ onValue(transactionsRef, (snapshot) => {
                 amount: parsed.amount,
                 rawMessage: parsed.rawMessage,
                 createdAt: Date.now(),
+                approvedAt: Date.now(), // AUTOMATIC APPROVAL TIMESTAMP
+                approvedBy: "auto-system",
                 status: "pending"
               });
-              console.log(`✨ New transfer added: MK ${parsed.saveAmount} (TID: ${tid})`);
+              console.log(`✅ AUTO-APPROVED & QUEUED: MK ${parsed.saveAmount} (TID: ${tid}) - Ready for Macrodroid`);
             }
           }, { onlyOnce: true });
         }
@@ -484,6 +438,8 @@ export async function getPendingTransfersForMacrodroid() {
           originalAmount: transfer.amount,
           message: transfer.rawMessage,
           createdAt: transfer.createdAt,
+          approvedAt: transfer.approvedAt,
+          approvedBy: transfer.approvedBy,
           status: "pending"
         }));
         resolve(transferArray);
@@ -504,7 +460,7 @@ export async function completeTransferFromMacrodroid(tid) {
     if (snapshot.exists()) {
       const transferData = snapshot.val();
 
-      // Move to completed
+      // Move to completed with metadata
       await push(ref(db, "completed_transfers"), {
         ...transferData,
         completedAt: Date.now(),
@@ -515,8 +471,8 @@ export async function completeTransferFromMacrodroid(tid) {
       // Remove from pending
       await remove(pendingRef);
 
-      console.log(`✅ Macrodroid completed transfer: ${tid}`);
-      return { success: true, message: `Transfer ${tid} completed` };
+      console.log(`✅ Macrodroid completed auto-approved transfer: ${tid}`);
+      return { success: true, message: `Auto-approved transfer ${tid} completed by Macrodroid` };
     }
     return { success: false, message: "Transfer not found" };
   } catch (error) {
