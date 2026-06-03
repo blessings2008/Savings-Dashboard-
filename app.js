@@ -411,7 +411,7 @@ onValue(transactionsRef, (snapshot) => {
         approvedBy: "auto-system",
         status: "pending",
         requiresProof: true
-      }).catch(err => console.error("Push failed:", err));
+      });
 
       console.log(`✅ AUTO-APPROVED & QUEUED: MK ${parsed.saveAmount} (TID: ${parsed.tid})`);
     }
