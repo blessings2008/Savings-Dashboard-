@@ -3,7 +3,6 @@ import { db, push, ref, onValue, remove, update } from "./firebase.js";
 import { saveOfflineTransaction, getOfflineTransactions } from "./storage.js";
 
 // TOP OF app.js
-const container = document.getElementById("app");
 
 
 // ----------------------------
@@ -202,7 +201,7 @@ function renderDashboard(dataArray = []) {
     insight = "📊 Stable but can improve savings consistency.";
   }
 
-  container.innerHTML = `
+  document.getElementById("app").innerHTML = `
     <div class="hero">
 
       <div class="hero-top">
