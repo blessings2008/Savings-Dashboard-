@@ -206,7 +206,7 @@ function renderDashboard(dataArray = []) {
 
       <div class="hero-top">
         <h1>Money Saver Pro</h1>
-        <p>Level 4 Full Financial Intelligence System - Auto-Approval Enabled</p>
+        <p>Financial Intelligence System</p>
       </div>
 
       <button onclick="if(confirm('Clear all data?')){localStorage.clear(); location.reload();}" 
@@ -224,7 +224,7 @@ function renderDashboard(dataArray = []) {
         ">
         🗑 Clear All Local Data & Restart
       </button>
-That's it. Just that one button added between hero-top closing tag and balance-card.
+save money with ozaibless.
 
 
       <div class="balance-card">
