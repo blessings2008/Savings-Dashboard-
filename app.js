@@ -2,8 +2,9 @@ renderDashboard([]); // Immediate fallback render
 import { db, push, ref, onValue, remove, update } from "./firebase.js";
 import { saveOfflineTransaction, getOfflineTransactions } from "./storage.js";
 
-const container = document.getElementById("app");
 
+document.addEventListener("DOMContentLoaded", () => {
+const container = document.getElementById("app");
 // ----------------------------
 // UTIL
 // ----------------------------
@@ -655,3 +656,4 @@ export async function completeTransferFromMacrodroid(tid, successMessage) {
     return { success: false, error: error.message };
   }
 }
+  });
