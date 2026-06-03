@@ -209,6 +209,24 @@ function renderDashboard(dataArray = []) {
         <p>Level 4 Full Financial Intelligence System - Auto-Approval Enabled</p>
       </div>
 
+      <button onclick="if(confirm('Clear all data?')){localStorage.clear(); location.reload();}" 
+        style="
+          width:100%;
+          padding:14px;
+          background:red;
+          color:white;
+          border:none;
+          border-radius:16px;
+          font-size:16px;
+          font-weight:700;
+          margin-bottom:16px;
+          cursor:pointer;
+        ">
+        🗑 Clear All Local Data & Restart
+      </button>
+That's it. Just that one button added between hero-top closing tag and balance-card.
+
+
       <div class="balance-card">
         <span>Savings Balance</span>
         <h2>MK ${savingsBalance.toLocaleString()}</h2>
