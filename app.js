@@ -390,29 +390,36 @@ onValue(transactionsRef, (snapshot) => {
           const tid = parsed.tid;
           
           // Check if already in pending_transfers
-          const checkRef = ref(db, `pending_transfers/${tid}`);
-          onValue(checkRef, (checkSnapshot) => {
-            if (!checkSnapshot.exists()) {
-              // AUTO-APPROVE: Add to pending_transfers with approval timestamp
-              push(ref(db, "pending_transfers"), {
-                tid: parsed.tid,
-                saveAmount: parsed.saveAmount,
-                savingsPercent: parsed.savingsPercent,
-                sender: parsed.sender,
-                amount: parsed.amount,
-                rawMessage: parsed.rawMessage,
-                createdAt: Date.now(),
-                approvedAt: Date.now(), // AUTOMATIC APPROVAL TIMESTAMP
-                approvedBy: "auto-system",
-                status: "pending", // PENDING UNTIL PROOF RECEIVED
-                requiresProof: true // MUST HAVE PROOF BEFORE SUCCESS
-              });
-              console.log(`✅ AUTO-APPROVED & QUEUED: MK ${parsed.saveAmount} (TID: ${tid}) - Awaiting proof from Macrodroid`);
-            }
-          }, { onlyOnce: true });
-        }
-      }
-    });
+          transactions.forEach(t => {
+  const key = t.tid || t.message;
+
+  if (!existingIds.has(key)) {
+    saveOfflineTransaction(t);
+
+    const parsed = parseTransaction(t.message);
+
+    if (parsed && parsed.requiresTransfer) {
+      push(ref(db, "pending_transfers"), {
+        tid: parsed.tid,
+        saveAmount: parsed.saveAmount,
+        savingsPercent: parsed.savingsPercent,
+        sender: parsed.sender,
+        amount: parsed.amount,
+        rawMessage: parsed.rawMessage,
+        createdAt: Date.now(),
+        approvedAt: Date.now(),
+        approvedBy: "auto-system",
+        status: "pending",
+        requiresProof: true
+      }).catch(err => console.error("Push failed:", err));
+
+      console.log(`✅ AUTO-APPROVED & QUEUED: MK ${parsed.saveAmount} (TID: ${parsed.tid})`);
+    }
+  }
+});
+
+console.log(`📊 Total Transactions: ${transactions.length}`);
+renderDashboard(transactions);
 
     console.log(`📊 Total Transactions: ${transactions.length}`);
     renderDashboard(transactions);
