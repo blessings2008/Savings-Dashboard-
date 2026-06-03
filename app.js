@@ -64,8 +64,8 @@ function parseTransaction(message) {
 
   // TID EXTRACTION
   const tidMatch = message.match(/([A-Z]{2}\d+\.\d+\.[A-Z0-9]+)/i);
-  const tid = tidMatch ? tidMatch[1] : `NO_TID_${amount}_${Date.now()}`;
-
+const rawTid = tidMatch ? tidMatch[1] : `NO_TID_${amount}_${Date.now()}`;
+const tid = rawTid.replace(/[.#$[\]]/g, "_");
   // ----------------------------
   // SAVINGS ENGINE (AUTO-APPROVED)
   // ----------------------------
@@ -395,7 +395,7 @@ onValue(transactionsRef, (snapshot) => {
             if (!checkSnapshot.exists()) {
               // AUTO-APPROVE: Add to pending_transfers with approval timestamp
               push(ref(db, "pending_transfers"), {
-                tid: parsed.tid,
+                tid: safeTid, // 👈 use safeTid
                 saveAmount: parsed.saveAmount,
                 savingsPercent: parsed.savingsPercent,
                 sender: parsed.sender,
