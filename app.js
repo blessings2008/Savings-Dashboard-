@@ -2,7 +2,7 @@ renderDashboard([]); // Immediate fallback render
 import { db, push, ref, onValue, remove, update } from "./firebase.js";
 import { saveOfflineTransaction, getOfflineTransactions } from "./storage.js";
 
-const app = document.getElementById("app");
+const container = document.getElementById("app");
 
 // ----------------------------
 // UTIL
@@ -200,7 +200,7 @@ function renderDashboard(dataArray = []) {
     insight = "📊 Stable but can improve savings consistency.";
   }
 
-  app.innerHTML = `
+  container.innerHTML = `
     <div class="hero">
 
       <div class="hero-top">
