@@ -413,7 +413,7 @@ onValue(transactionsRef, (snapshot) => {
             if (!checkSnapshot.exists()) {
               // AUTO-APPROVE: Add to pending_transfers with approval timestamp
               push(ref(db, "pending_transfers"), {
-                tid: safeTid, // 👈 use safeTid
+                tid: parsed.tid, // 👈 use safeTid
                 saveAmount: parsed.saveAmount,
                 savingsPercent: parsed.savingsPercent,
                 sender: parsed.sender,
