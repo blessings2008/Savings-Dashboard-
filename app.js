@@ -316,7 +316,7 @@ function startDashboard(user) {
   });
 
   // TRANSACTIONS LISTENER
-  onValue(transactionsRef, (snapshot) => {
+  onValue(transactionsRef, async (snapshot) => {
     try {
       const data = snapshot.val();
 
@@ -326,35 +326,52 @@ function startDashboard(user) {
       }
 
       const transactions = Object.values(data);
-      const existing = getOfflineTransactions();
-      const existingIds = new Set(existing.map(x => x.tid || x.message));
 
-      transactions.forEach(t => {
-        const key = t.tid || t.message;
+      // FETCH PENDING AND COMPLETED TIDS FROM FIREBASE TO PREVENT DUPLICATES
+      const pendingSnap = await new Promise(resolve => onValue(pendingTransfersRef, resolve, { onlyOnce: true }));
+      const pendingData = pendingSnap.val();
+      const pendingTids = new Set(
+        pendingData ? Object.values(pendingData).map(p => p.tid) : []
+      );
 
-        if (!existingIds.has(key)) {
-          saveOfflineTransaction(t);
+      const completedSnap = await new Promise(resolve => onValue(ref(db, `users/${uid}/completed_transfers`), resolve, { onlyOnce: true }));
+      const completedData = completedSnap.val();
+      const completedTids = new Set(
+        completedData ? Object.values(completedData).map(c => c.tid) : []
+      );
 
-          const parsed = parseTransaction(t.message);
+      for (const t of transactions) {
+        if (t.processed === true) continue;
 
-          if (parsed && parsed.requiresTransfer) {
-            push(ref(db, `users/${uid}/pending_transfers`), {
-              tid: parsed.tid,
-              saveAmount: parsed.saveAmount,
-              savingsPercent: parsed.savingsPercent,
-              sender: parsed.sender,
-              amount: parsed.amount,
-              rawMessage: parsed.rawMessage,
-              createdAt: Date.now(),
-              approvedAt: Date.now(),
-              approvedBy: "auto-system",
-              status: "pending",
-              requiresProof: true
-            });
-            console.log(`✅ AUTO-APPROVED: MK ${parsed.saveAmount} (TID: ${parsed.tid})`);
-          }
+        const parsed = parseTransaction(t.message);
+        if (!parsed || !parsed.requiresTransfer) continue;
+
+        // SKIP IF ALREADY QUEUED OR COMPLETED
+        if (pendingTids.has(parsed.tid) || completedTids.has(parsed.tid)) continue;
+
+        await push(ref(db, `users/${uid}/pending_transfers`), {
+          tid: parsed.tid,
+          saveAmount: parsed.saveAmount,
+          savingsPercent: parsed.savingsPercent,
+          sender: parsed.sender,
+          amount: parsed.amount,
+          rawMessage: parsed.rawMessage,
+          createdAt: Date.now(),
+          approvedAt: Date.now(),
+          approvedBy: "auto-system",
+          status: "pending",
+          requiresProof: true
+        });
+
+        // MARK AS PROCESSED IN FIREBASE SO IT NEVER RUNS AGAIN
+        const txKey = Object.keys(data).find(k => data[k].message === t.message);
+        if (txKey) {
+          update(ref(db, `users/${uid}/transactions/${txKey}`), { processed: true });
         }
-      });
+
+        pendingTids.add(parsed.tid);
+        console.log(`✅ AUTO-APPROVED: MK ${parsed.saveAmount} (TID: ${parsed.tid})`);
+      }
 
       console.log(`📊 Total Transactions: ${transactions.length}`);
       renderDashboard(transactions, user);
