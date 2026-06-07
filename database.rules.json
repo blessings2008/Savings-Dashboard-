@@ -1,7 +1,7 @@
 {
   "rules": {
     "users": {
-      ".read": "auth.uid === 'REPLACE_WITH_YOUR_ADMIN_UID'",
+      ".read": "auth.uid === 'kYDdHuSgdoX4UCeOS9ZHCrkZGEH2'",
       "$uid": {
         ".read": "$uid === auth.uid",
         ".write": "$uid === auth.uid"
