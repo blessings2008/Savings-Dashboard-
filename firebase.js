@@ -23,7 +23,14 @@ import {
 from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
 const firebaseConfig = {
-  databaseURL: "https://money-saver-e0504-default-rtdb.firebaseio.com"
+  apiKey: "AIzaSyC-1g6QcAs2U64x6RUP2tGdo8b9hJQg3_k",
+  authDomain: "money-saver-e0504.firebaseapp.com",
+  databaseURL: "https://money-saver-e0504-default-rtdb.firebaseio.com",
+  projectId: "money-saver-e0504",
+  storageBucket: "money-saver-e0504.firebasestorage.app",
+  messagingSenderId: "414713997121",
+  appId: "1:414713997121:web:7d244d6f4b23d1dfa0a3c0",
+  measurementId: "G-2N6J2DR63X"
 };
 
 const firebaseApp = initializeApp(firebaseConfig);
