@@ -5,7 +5,7 @@ import { db, ref, onValue } from "./firebase.js";
 // Replace this with your actual Firebase UID
 // Find it in Firebase Console → Authentication → Users
 // ----------------------------
-export const ADMIN_UID = "REPLACE_WITH_YOUR_UID";
+export const ADMIN_UID = "kYDdHuSgdoX4UCeOS9ZHCrkZGEH2";
 
 export function isAdmin(uid) {
   return uid === ADMIN_UID;
