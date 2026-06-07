@@ -1,0 +1,11 @@
+{
+  "rules": {
+    "users": {
+      ".read": "auth.uid === 'REPLACE_WITH_YOUR_ADMIN_UID'",
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid"
+      }
+    }
+  }
+}
